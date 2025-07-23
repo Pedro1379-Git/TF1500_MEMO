@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generador de Memorandum YORZU (con Historial CSV)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        :root { --primary-color: #007bff; --secondary-color: #17a2b8; --success-color: #28a745; --danger-color: #dc3545; --info-color: #6c757d; }
+        body { font-family: Arial, sans-serif; line-height: 1.4; margin: 0; padding: 10px; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 900px; margin: auto; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        .main-controls { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;}
+        .main-controls button {
+            flex-grow: 1; padding: 12px; border: none; border-radius: 5px; color: white; font-size: 16px; cursor: pointer;
+        }
+        #generateMemoBtn { background-color: var(--primary-color); }
+        #viewHistoryBtn { background-color: var(--info-color); }
+        #generatePdfBtn { background-color: var(--success-color); display: none; }
+        
+        .entry-section { border: 1px solid #ddd; border-radius: 5px; padding: 15px; margin-bottom: 15px; }
+        .entry-section h2 { margin-top: 0; font-size: 18px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        
+        input[type="text"], input[type="number"], select {
+            width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;
+        }
+        .form-group { margin-bottom: 10px; }
+        .form-group label { display: block; margin-bottom: 3px; font-weight: bold; font-size: 14px; }
+        .action-button { background-color: var(--secondary-color); color: white; width: 100%; padding: 10px; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; }
+        .action-button:hover { opacity: 0.9; }
+
+        #item-staging-area { background-color: #f9f9f9; padding: 15px; border: 1px dashed #ccc; margin-top: 15px; }
+        #items-list .list-item {
+            display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee;
+            flex-wrap: wrap; gap: 5px 15px;
+        }
+        .list-item .item-details { flex-grow: 1; font-size: 14px; word-break: break-all; }
+        .list-item .item-details strong { display: inline-block; min-width: 70px; }
+        .list-item .delete-btn { background-color: var(--danger-color); color: white; border: none; border-radius: 50%; width: 25px; height: 25px; cursor: pointer; font-weight: bold; flex-shrink: 0; }
+
+        #historyDialog {
+            width: 90%; max-width: 800px; border: 1px solid #ccc; border-radius: 8px; padding: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        #historyDialog::backdrop { background-color: rgba(0, 0, 0, 0.5); }
+        #historyTable { width: 100%; border-collapse: collapse; }
+        #historyTable th, #historyTable td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+        #historyTable th { background-color: #f2f2f2; }
+        #historyTable tr:hover { background-color: #f9f9f9; }
+        .history-actions { margin-top: 15px; display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap;}
+        .history-actions button, .history-actions label { flex-grow: 1; min-width: 120px;}
+        
+        .memorandum-hidden { display: none; }
+        .memorandum { border: 1px solid #000; padding: 20px; margin-top: 20px; background-color: white; }
+        .memo-header-wrapper { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;}
+        .memo-logo { font-size: 28px; font-weight: bold; color: #4CAF50; }
+        .memo-header { text-align: center; flex-grow: 1; }
+        .memo-header h2 { margin: 0 0 10px 0; font-size: 24px; }
+        .memo-details-right, .memo-details-left { font-size: 12px; min-width: 200px; }
+        .memo-details-right div, .memo-details-left div { margin-bottom: 3px; }
+        .memo-asunto { font-size: 12px; text-align: left; margin-top: 5px; border-top: 1px solid #000; padding-top:10px; }
+        .memo-asunto .label { font-weight: bold;}
+        .memo-section { margin-bottom: 15px; } 
+        .memo-section h3 { font-size: 11px; font-weight:bold; margin-bottom: 3px; border-bottom: 1px solid #eee; padding-bottom: 2px; text-transform: uppercase; text-align: center;}
+        .memo-section p { font-size: 10px; margin: 1px 0; } 
+        .memo-section p strong { min-width: 180px; display: inline-block; font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; margin-top: 3px; font-size: 9px; } 
+        th, td { border: 1px solid #000; padding: 2px; text-align: left; vertical-align: top; } 
+        th { background-color: #e0e0e0; font-weight: bold; text-align: center; }
+        td:first-child { text-align: center; width: 25px; } 
+        .memo-footer { margin-top: 15px; font-size: 10px; }
+        .memo-footer p { margin-bottom: 10px; text-align:center;}
+        .signatures { display: flex; justify-content: space-around; text-align: center; margin-top: 20px; padding-top: 5px; }
+        .signatures div { width: 30%; padding-top: 30px; border-top: 1px solid #000; font-size: 9px; }
+
+        @media print {
+            body { background-color: white; padding: 0; margin: 0; font-size: 8pt; line-height: 1.2; }
+            .container > h1, .main-controls, .entry-section, #historyDialog, hr, #printButton, #downloadTemplateButton { display: none !important; }
+            .container { box-shadow: none; margin: 0; max-width: 100%; padding: 5mm; border-radius: 0; }
+            .memorandum { border: 1px solid #000; margin: 0; padding: 10px; }
+            .memo-logo { font-size: 20px; } 
+            .memo-header h2 { font-size: 18px; margin-bottom: 5px;} 
+            .memo-details-left, .memo-details-right, .memo-asunto { font-size: 8pt; }
+            .memo-asunto { padding-top: 5px; margin-top: 3px;}
+            .memo-section { margin-bottom: 8px; } 
+            .memo-section h3 { font-size: 9pt; margin-bottom: 2px; padding-bottom: 1px;}
+            .memo-section p { font-size: 8pt; margin: 1px 0;}
+            .memo-section p strong { min-width: 150px; }
+            table { font-size: 7pt; margin-top: 2px; }
+            th, td { padding: 1px; border: 1px solid #000 !important; }
+            td:first-child { width: 20px; }
+            th { background-color: #e0e0e0 !important; -webkit-print-color-adjust: exact; color-adjust: exact; }
+            .memo-footer { font-size: 8pt; margin-top: 10px;}
+            .memo-footer p { margin-bottom: 8px;}
+            .signatures { margin-top: 15px; }
+            .signatures div { font-size: 7pt; padding-top: 20px;}
+        }
+
+        @media (max-width: 767px) {
+            #excel-upload-section { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Generador de Memorandum</h1>
+        
+        <div class="main-controls">
+            <button id="generateMemoBtn">Generar Memorandum</button>
+            <button id="viewHistoryBtn">Historial</button>
+            <button id="generatePdfBtn">Descargar PDF</button>
+        </div>
+        <hr>
+
+        <div class="entry-section">
+            <h2>1. Añadir Ítems Manualmente</h2>
+            <div class="form-group">
+                <label for="raw-string-input">Pegar Cadena de Escaneo:</label>
+                <input type="text" id="raw-string-input" placeholder="Ej: 0X92544H47LG0B            60...">
+            </div>
+            <button id="parse-string-btn" class="action-button">Analizar Cadena</button>
+
+            <!-- Área de Preparación (Staging) -->
+            <div id="item-staging-area" style="display: none;">
+                <h3>Verificar y Añadir Ítem</h3>
+                <div class="form-group"><label>Número de Parte:</label><input type="text" id="stg-num-parte" readonly></div>
+                <div class="form-group"><label for="stg-descripcion">Descripción:</label><input type="text" id="stg-descripcion"></div>
+                <div class="form-group"><label for="stg-cantidad">Cantidad de Piezas:</label><input type="number" id="stg-cantidad" min="0"></div>
+                <!-- El campo de cantidad de racks está oculto -->
+                <div class="form-group" style="display: none;"><label for="stg-racks">Cantidad de Racks:</label><input type="number" id="stg-racks" value="1"></div>
+                <div class="form-group">
+                    <label for="stg-tipo-rack">Tipo de Contenedor/Rack:</label>
+                    <select id="stg-tipo-rack">
+                        <option value="HB YMEX">HB YMEX</option>
+                        <option value="RB YMEX">RB YMEX</option>
+                        <option value="HB YAGM">HB YAGM</option>
+                        <option value="RB YAGM">RB YAGM</option>
+                        <option value="RACK FR L21B">RACK FR L21B</option>
+                        <option value="RACK RR L21B">RACK RR L21B</option>
+                        <option value="PALLET DE POLIBOX VERDE">PALLET DE POLIBOX VERDE</option>
+                    </select>
+                </div>
+                <div class="form-group"><label for="stg-facturado">Estado:</label><select id="stg-facturado"><option value="N/A">NO INCLUIDO en Factura</option><option value="OK">INCLUIDO en Factura</option></select></div>
+                <button id="add-item-btn" class="action-button" style="background-color: var(--primary-color);">Añadir a la Lista</button>
+            </div>
+        </div>
+
+        <div class="entry-section">
+            <h2>2. Añadir Contenedores Vacíos</h2>
+            <div class="form-group">
+                 <label for="empty-tipo-rack">Tipo de Contenedor:</label>
+                 <select id="empty-tipo-rack">
+                    <option value="HB YAGM">HB YAGM</option>
+                    <option value="HB YMEX">HB YMEX</option>
+                    <option value="RB YMEX">RB YMEX</option>
+                    <option value="RB YAGM">RB YAGM</option>
+                    <option value="RACK FR L21B">RACK FR L21B</option>
+                    <option value="RACK RR L21B">RACK RR L21B</option>
+                    <option value="PALLET DE POLIBOX VERDE">PALLET DE POLIBOX VERDE</option>
+                 </select>
+            </div>
+             <div class="form-group"><label for="empty-cantidad">Cantidad:</label><input type="number" id="empty-cantidad" min="1"></div>
+            <button id="add-empty-btn" class="action-button">Añadir Vacíos</button>
+        </div>
+        
+        <div class="entry-section">
+            <h2>Lista de Ítems para Memorandum</h2>
+            <div id="items-list"><p style="text-align:center; color: #888;">No hay ítems añadidos.</p></div>
+        </div>
+
+        <div class="entry-section" id="excel-upload-section">
+            <h2>Cargar desde Archivo Excel (Escritorio)</h2>
+            <div class="form-group"><label for="excelFile">Seleccionar archivo Excel:</label><input type="file" id="excelFile" accept=".xlsx, .xls"></div>
+            <button id="processButton" class="action-button">Procesar Excel y Generar</button>
+            <button id="downloadTemplateButton" class="action-button" style="margin-top:10px;">Descargar Plantilla Excel</button>
+        </div>
+
+        <hr>
+        <div id="memorandumContainer" class="memorandum-hidden">
+            <!-- El contenido del memorandum se genera aquí usando la plantilla de abajo -->
+        </div>
+
+        <!-- Plantilla oculta del memorandum para ser clonada -->
+        <div style="display:none;" id="memo-template-wrapper">
+             <div class="memorandum">
+                <div class="memo-header-wrapper">
+                    <div class="memo-logo">YORZU</div>
+                    <div class="memo-header"><h2>MEMORANDUM</h2></div>
+                    <div class="memo-details-right">
+                        <div><span class="label">FECHA:</span> <span id="memoFecha"></span></div>
+                        <div><span class="label">FOLIO:</span> <span id="memoFolio"></span></div>
+                    </div>
+                </div>
+                <div class="memo-details-left">
+                    <div><span class="label">PARA:</span> <span id="memoPara">VIGILANCIA</span></div>
+                    <div><span class="label">DE:</span> <span id="memoDe">CONTROL DE PRODUCCION</span></div>
+                </div>
+                <div class="memo-asunto">
+                    <span class="label">ASUNTO:</span> <span id="memoAsunto">Por medio de la presente, solicito se realicen los tramites correspondientes a efecto de que se permita la salida de los siguientes productos fuera de la factura</span>
+                </div>
+                <div class="memo-section">
+                    <h3>Material NO incluido en factura</h3>
+                    <p><strong>ESTO CON LA FINALIDAD DE:</strong> CUMPLIR CON EL PLAN DE ENTREGAS A CLIENTE</p>
+                    <p><strong>CON CLIENTE:</strong> YMEX</p>
+                    <p><strong>CON FECHA DE REGRESO EL DIA:</strong> SIN RETORNO</p>
+                    <table id="tablaNoIncluido"><thead><tr><th>ITEM</th><th>NUMERO DE PARTE</th><th>DESCRIPCION</th><th>TIPO DE RACK</th><th>CANTIDAD DE RACKS</th><th>TOTAL DE PIEZAS</th></tr></thead><tbody></tbody></table>
+                </div>
+                <div class="memo-section">
+                    <h3>Material incluido en factura (los datos son informativos)</h3>
+                    <p><strong>ESTO CON LA FINALIDAD DE:</strong> SER PROCESADO Y RETORNAR A YAGM</p>
+                    <p><strong>CON PROVEEDOR:</strong> YMEX</p>
+                    <p><strong>CON FECHA DE REGRESO EL DIA:</strong> SEGÚN EL PLAN DE ENTREGAS</p>
+                    <table id="tablaIncluido"><thead><tr><th>ITEM</th><th>NUMERO DE PARTE</th><th>DESCRIPCION</th><th>TIPO DE RACK</th><th>CANTIDAD DE RACKS</th><th>TOTAL DE PIEZAS</th></tr></thead><tbody></tbody></table>
+                </div>
+                <div class="memo-section">
+                    <h3>RELACION DE CONTENEDORES</h3>
+                    <p><strong>ESTO CON LA FINALIDAD DE:</strong> RETORNAR CON PRODUCTO A YAGM</p>
+                    <p><strong>CON PROVEEDOR:</strong> YMEX</p>
+                    <p><strong>CON FECHA DE REGRESO EL DIA:</strong> SEGÚN EL PLAN DE ENTREGAS</p>
+                    <table id="tablaRelacionContenedores"><thead><tr><th>ITEM</th><th>TIPO DE CONTENEDOR</th><th>CON MATERIAL</th><th>VACIOS</th><th>TOTAL DE RACKS</th></tr></thead><tbody></tbody></table>
+                </div>
+                <div class="memo-footer">
+                    <p>Sin otro particular, quedamos a sus ordenes para cualquier aclaración.</p>
+                    <div class="signatures">
+                        <div>ELABORO<br><span id="elaboroArea">AREA DE EMBARQUES O RECIBO</span></div>
+                        <div>REVISO<br>SUPERVISOR O (LIDER POR AUCENCIA)</div>
+                        <div>Recibió<br>Proveedor</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <dialog id="historyDialog">
+        <h2>Historial de Memorandums</h2>
+        <div style="max-height: 400px; overflow-y: auto; border: 1px solid #ccc;">
+            <table id="historyTable"><thead><tr><th>Folio</th><th>Fecha</th><th>Acción</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div class="history-actions">
+            <button id="exportHistoryBtn">Exportar a CSV</button>
+            <label for="importHistoryInput" class="action-button" style="display:inline-block; text-align: center; padding: 8px 12px; cursor: pointer;">Importar desde CSV</label>
+            <input type="file" id="importHistoryInput" accept=".csv" style="display: none;">
+            <form method="dialog"><button>Cerrar</button></form>
+        </div>
+    </dialog>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            let memorandumItems = [];
+            let history = [];
+
+            // Selectores de Elementos
+            const parseStringBtn = document.getElementById('parse-string-btn');
+            const rawStringInput = document.getElementById('raw-string-input');
+            const itemStagingArea = document.getElementById('item-staging-area');
+            const addItemBtn = document.getElementById('add-item-btn');
+            const addEmptyBtn = document.getElementById('add-empty-btn');
+            const itemsListDiv = document.getElementById('items-list');
+            const generateMemoBtn = document.getElementById('generateMemoBtn');
+            const generatePdfBtn = document.getElementById('generatePdfBtn');
+            const excelFileInput = document.getElementById('excelFile');
+            const processExcelBtn = document.getElementById('processButton');
+            const downloadTemplateButton = document.getElementById('downloadTemplateButton');
+            const viewHistoryBtn = document.getElementById('viewHistoryBtn');
+            const historyDialog = document.getElementById('historyDialog');
+            const historyTableBody = document.querySelector('#historyTable tbody');
+            const exportHistoryBtn = document.getElementById('exportHistoryBtn');
+            const importHistoryInput = document.getElementById('importHistoryInput');
+
+            // --- LÓGICA DE HISTORIAL ---
+            function loadHistoryFromLocalStorage() { history = JSON.parse(localStorage.getItem('memoHistory') || '[]'); }
+            function saveHistoryToLocalStorage() { localStorage.setItem('memoHistory', JSON.stringify(history)); }
+            function addToHistory(folio, fecha, data) { if (!history.some(e => e.folio === folio)) { history.push({ folio, fecha, data }); saveHistoryToLocalStorage(); } }
+
+            function renderHistoryTable() {
+                historyTableBody.innerHTML = '';
+                [...history].reverse().forEach(entry => {
+                    const tr = historyTableBody.insertRow();
+                    tr.innerHTML = `<td>${entry.folio}</td><td>${entry.fecha}</td><td><button class="load-history-btn" data-folio="${entry.folio}">Cargar</button></td>`;
+                });
+            }
+
+            viewHistoryBtn.addEventListener('click', () => { renderHistoryTable(); historyDialog.showModal(); });
+            
+            historyTableBody.addEventListener('click', e => {
+                if (e.target.classList.contains('load-history-btn')) {
+                    const entry = history.find(item => item.folio === e.target.dataset.folio);
+                    if (entry) { populateMemorandum(entry.data); historyDialog.close(); }
+                }
+            });
+
+            exportHistoryBtn.addEventListener('click', () => {
+                if (history.length === 0) { alert("El historial está vacío."); return; }
+                let csvContent = "data:text/csv;charset=utf-8,Folio,Fecha,DatosJSON\n";
+                history.forEach(entry => {
+                    const jsonData = JSON.stringify(entry.data).replace(/"/g, '""');
+                    csvContent += `${entry.folio},${entry.fecha},"${jsonData}"\n`;
+                });
+                const link = document.createElement("a");
+                link.href = encodeURI(csvContent);
+                link.download = `historial_memorandums_${new Date().toISOString().slice(0,10)}.csv`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            });
+            
+            importHistoryInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const lines = event.target.result.split('\n').filter(line => line.trim() !== '');
+                        if (lines.length <= 1) throw new Error("Archivo CSV vacío o sin datos.");
+                        const newHistory = [];
+                        for (let i = 1; i < lines.length; i++) {
+                            const parts = lines[i].match(/(^[^,]+),([^,]+),"(.*)"$/s);
+                            if (parts && parts.length === 4) {
+                                newHistory.push({ folio: parts[1], fecha: parts[2], data: JSON.parse(parts[3].replace(/""/g, '"')) });
+                            }
+                        }
+                        if (confirm(`Se encontraron ${newHistory.length} registros. ¿Desea reemplazar el historial actual?`)) {
+                            history = newHistory;
+                            saveHistoryToLocalStorage();
+                            renderHistoryTable();
+                            alert("Historial importado con éxito.");
+                        }
+                    } catch (error) { alert(`Error al importar: ${error.message}`); } 
+                    finally { importHistoryInput.value = ''; }
+                };
+                reader.readAsText(file);
+            });
+
+            // --- LÓGICA DE ENTRADA MANUAL ---
+            parseStringBtn.addEventListener('click', () => {
+                const rawString = rawStringInput.value.trim();
+                if (!rawString) { alert("Pega una cadena para analizar."); return; }
+                try {
+                    const partNumber = rawString.substring(4, 21).trim();
+                    const quantityMatch = rawString.substring(21).trim().match(/^\d+/);
+                    const quantity = quantityMatch ? parseInt(quantityMatch[0], 10) : 0;
+                    if (!partNumber) throw new Error("No se pudo extraer el Número de Parte.");
+                    
+                    document.getElementById('stg-num-parte').value = partNumber;
+                    document.getElementById('stg-cantidad').value = quantity;
+                    // --- AJUSTES AQUÍ ---
+                    document.getElementById('stg-descripcion').value = 'PARTE ESTAMPADA'; // Descripción por defecto
+                    document.getElementById('stg-racks').value = 1; // Valor fijo, campo oculto
+                    document.getElementById('stg-tipo-rack').value = 'HB YMEX'; // Contenedor por defecto
+                    itemStagingArea.style.display = 'block';
+                    rawStringInput.value = '';
+                } catch (error) { alert(`Error al analizar: ${error.message}`); }
+            });
+
+            addItemBtn.addEventListener('click', () => {
+                const newItem = {
+                    numParte: document.getElementById('stg-num-parte').value,
+                    descripcion: document.getElementById('stg-descripcion').value.trim() || 'SIN DESCRIPCION',
+                    cantidad: parseInt(document.getElementById('stg-cantidad').value, 10) || 0,
+                    racks: 1, // Valor siempre es 1 para entradas manuales
+                    tipoRack: document.getElementById('stg-tipo-rack').value, // Ya es uppercase por HTML
+                    facturado: document.getElementById('stg-facturado').value,
+                    esVacio: false, id: Date.now()
+                };
+                if (!newItem.numParte || !newItem.tipoRack) { alert("Número de Parte y Tipo de Contenedor son obligatorios."); return; }
+                memorandumItems.push(newItem);
+                renderItemsList();
+                itemStagingArea.style.display = 'none';
+            });
+
+            addEmptyBtn.addEventListener('click', () => {
+                const tipoRack = document.getElementById('empty-tipo-rack').value; // Tomar valor del select
+                const cantidad = parseInt(document.getElementById('empty-cantidad').value, 10);
+                if (!tipoRack || !cantidad || cantidad < 1) { alert("Especifica un tipo y cantidad válidos."); return; }
+                memorandumItems.push({ numParte: '', descripcion: 'VACIOS', cantidad: 0, racks: cantidad, tipoRack, facturado: 'N/A', esVacio: true, id: Date.now() });
+                renderItemsList();
+                document.getElementById('empty-tipo-rack').value = 'HB YAGM'; // Resetear al valor por defecto
+                document.getElementById('empty-cantidad').value = '';
+            });
+
+            function renderItemsList() {
+                itemsListDiv.innerHTML = memorandumItems.length === 0 ? '<p style="text-align:center; color: #888;">No hay ítems añadidos.</p>' : '';
+                memorandumItems.forEach(item => {
+                    const itemEl = document.createElement('div');
+                    itemEl.className = 'list-item';
+                    let detailsHtml = `<div class="item-details">${item.esVacio ? `<strong>VACÍOS:</strong> ${item.tipoRack} - <strong>Cant:</strong> ${item.racks}` : `<strong>NP:</strong> ${item.numParte}<br><strong>Rack:</strong> ${item.tipoRack} - <strong>Pzs:</strong> ${item.cantidad} - <strong>Racks:</strong> ${item.racks} (${item.facturado})`}</div>`;
+                    itemEl.innerHTML = `${detailsHtml}<button class="delete-btn" data-id="${item.id}">X</button>`;
+                    itemsListDiv.appendChild(itemEl);
+                });
+            }
+
+            itemsListDiv.addEventListener('click', (e) => {
+                if (e.target.classList.contains('delete-btn')) {
+                    memorandumItems = memorandumItems.filter(item => item.id !== parseInt(e.target.dataset.id));
+                    renderItemsList();
+                }
+            });
+
+            // --- LÓGICA DE GENERACIÓN ---
+            generateMemoBtn.addEventListener('click', () => {
+                if (memorandumItems.length === 0) { alert("La lista está vacía. Añade ítems para generar el memorandum."); return; }
+                const dataForMemo = memorandumItems.map(item => ({
+                    'FACTURADOS': item.facturado, 'N° DE PARTE': item.numParte, 'DESCRIPCION DE LA PIEZA': item.descripcion,
+                    'CONTENEDOR': item.tipoRack, 'N° DE RACKS': item.racks, 'CANTIDAD DE PIEZAS': item.cantidad,
+                }));
+                populateMemorandum(dataForMemo);
+            });
+
+            generatePdfBtn.addEventListener('click', async () => {
+                const memoElement = document.getElementById('memorandumContainer');
+                if (memoElement.classList.contains('memorandum-hidden') || memoElement.innerHTML.trim() === '') { alert("Primero genera el memorandum."); return; }
+                generatePdfBtn.textContent = "Generando PDF...";
+                generatePdfBtn.disabled = true;
+                const { jsPDF } = window.jspdf;
+                const canvas = await html2canvas(memoElement.querySelector('.memorandum'));
+                const imgData = canvas.toDataURL('image/png');
+                const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+                const imgProps = pdf.getImageProperties(imgData);
+                const pdfWidth = pdf.internal.pageSize.getWidth();
+                const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+                pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+                pdf.save(`Memorandum-${document.getElementById('memorandumContainer').querySelector('#memoFolio').textContent}.pdf`);
+                generatePdfBtn.textContent = "Descargar PDF";
+                generatePdfBtn.disabled = false;
+            });
+            
+            // --- LÓGICA DE EXCEL ---
+            downloadTemplateButton.addEventListener('click', () => {
+                 const templateData = [
+                    ["FACTURADOS", "N° DE PARTE", "DESCRIPCION DE LA PIEZA", "CONTENEDOR", "N° DE RACKS", "CANTIDAD DE PIEZAS"],
+                    ["OK", "EJEMPLO-NP-001", "PIEZA DE PRUEBA 1", "RACK-A", 10, 200],
+                    ["N/A", "EJEMPLO-NP-002", "OTRA PIEZA", "RACK-B", 5, 50],
+                    ["", "", "VACIOS", "CONT-VACIOS", 3, ""],
+                ];
+                const ws = XLSX.utils.aoa_to_sheet(templateData);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "PlantillaDatos");
+                XLSX.writeFile(wb, "Plantilla_Memorandum_YORZU.xlsx");
+            });
+
+            processExcelBtn.addEventListener('click', () => {
+                if (excelFileInput.files.length === 0) { alert('Por favor, selecciona un archivo Excel.'); return; }
+                const file = excelFileInput.files[0];
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const data = new Uint8Array(event.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                        const jsonDataObjects = XLSX.utils.sheet_to_json(worksheet, { raw: false, defval: "" });
+                        populateMemorandum(jsonDataObjects);
+                    } catch (e) { alert("Error al procesar Excel: " + e.message); }
+                };
+                reader.readAsArrayBuffer(file);
+            });
+
+            // --- FUNCIÓN CENTRAL populateMemorandum ---
+            function populateMemorandum(data) {
+                const container = document.getElementById('memorandumContainer');
+                container.innerHTML = document.getElementById('memo-template-wrapper').innerHTML;
+                container.classList.remove('memorandum-hidden');
+
+                const memoFechaEl = container.querySelector('#memoFecha');
+                const memoFolioEl = container.querySelector('#memoFolio');
+                const tablaNoIncluidoBody = container.querySelector('#tablaNoIncluido tbody');
+                const tablaIncluidoBody = container.querySelector('#tablaIncluido tbody');
+                const tablaRelacionContenedoresBody = container.querySelector('#tablaRelacionContenedores tbody');
+                
+                const hoy = new Date();
+                const anioActual = hoy.getFullYear(), anioCorto = String(anioActual).slice(-2);
+                const mesActual = String(hoy.getMonth() + 1).padStart(2, '0');
+                const diaActual = String(hoy.getDate()).padStart(2, '0');
+                const horasActuales = String(hoy.getHours()).padStart(2, '0');
+                const minutosActuales = String(hoy.getMinutes()).padStart(2, '0');
+                const fechaActualStr = `${diaActual}/${mesActual}/${anioActual}`;
+                const folioActualStr = `YM${anioCorto}${mesActual}${diaActual}${horasActuales}${minutosActuales}`;
+                
+                memoFechaEl.textContent = fechaActualStr;
+                memoFolioEl.textContent = folioActualStr;
+                addToHistory(folioActualStr, fechaActualStr, data);
+
+                const agrupadoNoIncluido = {}, agrupadoIncluido = {}, contenedoresSummary = {};
+                data.forEach(row => {
+                    const facturados = String(row['FACTURADOS'] || '').trim().toUpperCase(); 
+                    const numParte = String(row['N° DE PARTE'] || '').trim();
+                    const descripcion = String(row['DESCRIPCION DE LA PIEZA'] || '').trim();
+                    const tipoRack = String(row['CONTENEDOR'] || '').trim();
+                    const cantidadRacks = Number(row['N° DE RACKS']) || 0;
+                    const totalPiezas = Number(row['CANTIDAD DE PIEZAS']) || 0;
+                    if (tipoRack && (numParte || descripcion.toUpperCase() === "VACIOS")) {
+                        if (!contenedoresSummary[tipoRack]) { contenedoresSummary[tipoRack] = { conMaterial: 0, vacios: 0 }; }
+                        if (descripcion.toUpperCase() === "VACIOS") { contenedoresSummary[tipoRack].vacios += cantidadRacks; }
+                        else { contenedoresSummary[tipoRack].conMaterial += cantidadRacks; }
+                    }
+                    if (descripcion.toUpperCase() !== "VACIOS" && numParte && tipoRack) {
+                        const claveAgrupacion = `${numParte}_${tipoRack}`; 
+                        const datosAgrupadosRef = facturados === "N/A" ? agrupadoNoIncluido : (facturados === "OK" ? agrupadoIncluido : null);
+                        if (!datosAgrupadosRef) return;
+                        if (!datosAgrupadosRef[claveAgrupacion]) { datosAgrupadosRef[claveAgrupacion] = { numParte, descripcion, tipoRack, cantidadRacks: 0, totalPiezas: 0 }; }
+                        datosAgrupadosRef[claveAgrupacion].cantidadRacks += cantidadRacks;
+                        datosAgrupadosRef[claveAgrupacion].totalPiezas += totalPiezas;
+                    }
+                });
+
+                Object.keys(agrupadoNoIncluido).sort().forEach((key, i) => {
+                    const item = agrupadoNoIncluido[key];
+                    tablaNoIncluidoBody.insertRow().innerHTML = `<td>${i + 1}.-</td><td>${item.numParte}</td><td>${item.descripcion}</td><td>${item.tipoRack}</td><td>${item.cantidadRacks || ''}</td><td>${item.totalPiezas ? `${item.totalPiezas} pz` : ''}</td>`;
+                });
+                Object.keys(agrupadoIncluido).sort().forEach((key, i) => {
+                    const item = agrupadoIncluido[key];
+                    tablaIncluidoBody.insertRow().innerHTML = `<td>${i + 1}.-</td><td>${item.numParte}</td><td>${item.descripcion}</td><td>${item.tipoRack}</td><td>${item.cantidadRacks || ''}</td><td>${item.totalPiezas ? `${item.totalPiezas} pz` : ''}</td>`;
+                });
+                let itemRelacionCount = 1;
+                Object.keys(contenedoresSummary).sort().forEach((contenedor) => {
+                    const data = contenedoresSummary[contenedor];
+                    if (data.conMaterial > 0 || data.vacios > 0) {
+                        tablaRelacionContenedoresBody.insertRow().innerHTML = `<td>${itemRelacionCount++}.-</td><td>${contenedor}</td><td>${data.conMaterial}</td><td>${data.vacios}</td><td>${data.conMaterial + data.vacios}</td>`;
+                    }
+                });
+                generatePdfBtn.style.display = 'inline-block';
+            }
+
+            loadHistoryFromLocalStorage();
+            renderItemsList();
+        });
+    </script>
+</body>
+</html>
